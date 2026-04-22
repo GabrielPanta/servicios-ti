@@ -41,6 +41,37 @@ app.get('/api/servicios', async (req, res) => {
     }
 });
 
+// Obtener estadísticas del dashboard
+app.get('/api/estadisticas', async (req, res) => {
+    try {
+        const [total] = await db.execute('SELECT COUNT(*) as total FROM servicios');
+        const [validados] = await db.execute("SELECT COUNT(*) as total FROM servicios WHERE estado = 'Validado'");
+        const [rechazados] = await db.execute("SELECT COUNT(*) as total FROM servicios WHERE estado = 'Rechazado'");
+        const [pendientes] = await db.execute("SELECT COUNT(*) as total FROM servicios WHERE estado = 'Pendiente'");
+        const [enProceso] = await db.execute("SELECT COUNT(*) as total FROM servicios WHERE estado = 'En Proceso'");
+        const [pruebasTotal] = await db.execute('SELECT COUNT(*) as total FROM casos_prueba');
+        const [pruebasPasaron] = await db.execute("SELECT COUNT(*) as total FROM validaciones WHERE resultado = 'Pasó'");
+        const [pruebasFallaron] = await db.execute("SELECT COUNT(*) as total FROM validaciones WHERE resultado = 'Falló'");
+
+        res.json({
+            servicios: {
+                total: total[0].total,
+                validados: validados[0].total,
+                rechazados: rechazados[0].total,
+                pendientes: pendientes[0].total,
+                enProceso: enProceso[0].total
+            },
+            pruebas: {
+                total: pruebasTotal[0].total,
+                pasaron: pruebasPasaron[0].total,
+                fallaron: pruebasFallaron[0].total
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Obtener detalle de un servicio (incluyendo casos de prueba y sus resultados)
 app.get('/api/servicios/:id', async (req, res) => {
     try {
