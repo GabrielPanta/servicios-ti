@@ -2,6 +2,10 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 require('dotenv').config();
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
@@ -29,10 +33,117 @@ const connectDB = async () => {
 let db;
 connectDB().then(conn => db = conn);
 
-// Endpoints
+// Configuración de Nodemailer (Gmail)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+    },
+    tls: { rejectUnauthorized: false }
+});
+
+// Middleware de Autenticación
+const authMiddleware = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+    const token = authHeader.split(' ')[1];
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+};
+
+// Endpoints de Autenticación
+
+app.post('/api/registro', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        // Verificar si existe
+        const [existente] = await db.execute('SELECT id FROM usuarios WHERE email = ?', [email]);
+        if (existente.length > 0) return res.status(400).json({ error: 'El correo ya está registrado' });
+
+        // Encriptar contraseña y generar token
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const verificationToken = crypto.randomBytes(32).toString('hex');
+
+        // Guardar
+        await db.execute(
+            'INSERT INTO usuarios (email, password, is_verified, verification_token) VALUES (?, ?, ?, ?)',
+            [email, hashedPassword, false, verificationToken]
+        );
+
+        // Enviar correo
+        const verificationUrl = `http://localhost:5173/verificar/${verificationToken}`;
+        await transporter.sendMail({
+            from: `"Servicios TI" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Verifica tu cuenta de Servicios TI',
+            html: `
+                <div style="font-family: sans-serif; padding: 20px;">
+                    <h2>¡Bienvenido a Servicios TI!</h2>
+                    <p>Por favor, haz clic en el botón de abajo para verificar tu correo electrónico y activar tu cuenta:</p>
+                    <a href="${verificationUrl}" style="display:inline-block; padding:10px 20px; background:#6366f1; color:white; text-decoration:none; border-radius:5px;">Verificar Cuenta</a>
+                    <p>O copia y pega este enlace: <br/> ${verificationUrl}</p>
+                </div>
+            `
+        });
+
+        console.log(`✉️ Correo de verificación enviado a ${email}.`);
+
+        res.status(201).json({ success: true, message: 'Usuario registrado. Revisa tu correo.' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/verificar/:token', async (req, res) => {
+    try {
+        const { token } = req.params;
+        const [user] = await db.execute('SELECT id FROM usuarios WHERE verification_token = ?', [token]);
+        
+        if (user.length === 0) return res.status(400).json({ error: 'Token inválido o expirado' });
+
+        await db.execute('UPDATE usuarios SET is_verified = true, verification_token = NULL WHERE id = ?', [user[0].id]);
+        
+        res.json({ success: true, message: 'Cuenta verificada exitosamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        
+        const [users] = await db.execute('SELECT * FROM usuarios WHERE email = ?', [email]);
+        if (users.length === 0) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+        const user = users[0];
+        
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+        if (!user.is_verified) return res.status(403).json({ error: 'Por favor, verifica tu correo antes de iniciar sesión' });
+
+        const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '24h' });
+        
+        res.json({ success: true, token, email: user.email });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoints de Datos (Protegidos)
 
 // Obtener todos los servicios
-app.get('/api/servicios', async (req, res) => {
+app.get('/api/servicios', authMiddleware, async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT * FROM servicios ORDER BY fecha_creacion DESC');
         res.json(rows);
@@ -42,7 +153,7 @@ app.get('/api/servicios', async (req, res) => {
 });
 
 // Obtener estadísticas del dashboard
-app.get('/api/estadisticas', async (req, res) => {
+app.get('/api/estadisticas', authMiddleware, async (req, res) => {
     try {
         const [total] = await db.execute('SELECT COUNT(*) as total FROM servicios');
         const [validados] = await db.execute("SELECT COUNT(*) as total FROM servicios WHERE estado = 'Validado'");
@@ -73,7 +184,7 @@ app.get('/api/estadisticas', async (req, res) => {
 });
 
 // Obtener detalle de un servicio (incluyendo casos de prueba y sus resultados)
-app.get('/api/servicios/:id', async (req, res) => {
+app.get('/api/servicios/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         const [servicio] = await db.execute('SELECT * FROM servicios WHERE id = ?', [id]);
@@ -95,7 +206,7 @@ app.get('/api/servicios/:id', async (req, res) => {
 });
 
 // Crear o actualizar un resultado de validación
-app.post('/api/validaciones', async (req, res) => {
+app.post('/api/validaciones', authMiddleware, async (req, res) => {
     try {
         const { caso_id, resultado, observaciones } = req.body;
         
@@ -147,7 +258,7 @@ app.post('/api/validaciones', async (req, res) => {
 });
 
 // Crear un nuevo servicio con casos de prueba por defecto
-app.post('/api/servicios', async (req, res) => {
+app.post('/api/servicios', authMiddleware, async (req, res) => {
     try {
         const { nombre, descripcion } = req.body;
 
@@ -185,7 +296,7 @@ app.post('/api/servicios', async (req, res) => {
 });
 
 // Actualizar el estado de un servicio
-app.patch('/api/servicios/:id/estado', async (req, res) => {
+app.patch('/api/servicios/:id/estado', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         const { estado } = req.body;
@@ -197,7 +308,7 @@ app.patch('/api/servicios/:id/estado', async (req, res) => {
 });
 
 // Editar nombre y descripción de un servicio
-app.put('/api/servicios/:id', async (req, res) => {
+app.put('/api/servicios/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         const { nombre, descripcion } = req.body;
@@ -210,7 +321,7 @@ app.put('/api/servicios/:id', async (req, res) => {
 });
 
 // Eliminar un servicio (CASCADE borra casos_prueba y validaciones)
-app.delete('/api/servicios/:id', async (req, res) => {
+app.delete('/api/servicios/:id', authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         await db.execute('DELETE FROM servicios WHERE id = ?', [id]);

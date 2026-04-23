@@ -20,7 +20,10 @@ import {
   FileText,
   MessageSquare,
   XCircle,
-  Download
+  Download,
+  LogOut,
+  Mail,
+  User
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000/api';
@@ -45,10 +48,96 @@ function App() {
   // Toast
   const [toast, setToast] = useState(null);
 
+  // Auth
+  const [authToken, setAuthToken] = useState(localStorage.getItem('token'));
+  const [userEmail, setUserEmail] = useState(localStorage.getItem('email') || '');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authView, setAuthView] = useState('login'); // 'login' | 'register' | 'verify'
+  const [authLoading, setAuthLoading] = useState(false);
+
   useEffect(() => {
-    fetchServicios();
-    fetchStats();
-  }, []);
+    const path = window.location.pathname;
+    if (path.startsWith('/verificar/')) {
+      const token = path.split('/')[2];
+      verificarCuenta(token);
+    } else if (authToken) {
+      setupAxios();
+      fetchServicios();
+      fetchStats();
+    }
+  }, [authToken]);
+
+  const setupAxios = () => {
+    axios.interceptors.request.clear();
+    axios.interceptors.response.clear();
+    axios.interceptors.request.use(config => {
+      config.headers.Authorization = `Bearer ${authToken}`;
+      return config;
+    });
+    axios.interceptors.response.use(res => res, error => {
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        handleLogout();
+      }
+      return Promise.reject(error);
+    });
+  };
+
+  const verificarCuenta = async (token) => {
+    setAuthView('verify');
+    setAuthLoading(true);
+    try {
+      const { data } = await axios.get(`${API_BASE}/verificar/${token}`);
+      showToast(data.message, 'success');
+      setTimeout(() => {
+        window.history.pushState({}, '', '/');
+        setAuthView('login');
+      }, 3000);
+    } catch (error) {
+      showToast(error.response?.data?.error || 'Error al verificar la cuenta', 'danger');
+      setTimeout(() => {
+        window.history.pushState({}, '', '/');
+        setAuthView('login');
+      }, 3000);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    if (!authEmail || !authPassword) return;
+    setAuthLoading(true);
+    try {
+      if (authView === 'login') {
+        const { data } = await axios.post(`${API_BASE}/login`, { email: authEmail, password: authPassword });
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('email', data.email);
+        setAuthToken(data.token);
+        setUserEmail(data.email);
+        showToast('Inicio de sesión exitoso');
+      } else if (authView === 'register') {
+        const { data } = await axios.post(`${API_BASE}/registro`, { email: authEmail, password: authPassword });
+        showToast(data.message || 'Revisa tu correo para verificar tu cuenta', 'success');
+        setAuthView('login');
+        setAuthPassword('');
+      }
+    } catch (error) {
+      showToast(error.response?.data?.error || 'Error de autenticación', 'danger');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('email');
+    setAuthToken(null);
+    setUserEmail('');
+    setServicios([]);
+    setStats(null);
+    setServicioSeleccionado(null);
+  };
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -259,6 +348,70 @@ function App() {
     s.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  if (!authToken && authView === 'verify') {
+    return (
+      <div className="auth-container">
+        <div className="glass-card auth-card" style={{ textAlign: 'center' }}>
+          <Mail size={48} color="var(--primary)" style={{ marginBottom: '20px' }} />
+          <div className="auth-header">
+            <h2>Verificando Cuenta</h2>
+            <p style={{ color: 'var(--text-muted)' }}>{authLoading ? 'Por favor espera...' : 'Redirigiendo...'}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authToken) {
+    return (
+      <div className="auth-container">
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              className={`toast toast-${toast.type}`}
+              initial={{ opacity: 0, y: -40, x: '-50%' }}
+              animate={{ opacity: 1, y: 0, x: '-50%' }}
+              exit={{ opacity: 0, y: -40, x: '-50%' }}
+            >
+              {toast.type === 'success' ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+              {toast.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <motion.div className="glass-card auth-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <div className="auth-header">
+            <h2>Servicios TI</h2>
+            <p style={{ color: 'var(--text-muted)' }}>Gestión de calidad y despliegue</p>
+          </div>
+
+          <div className="auth-tabs">
+            <div className={`auth-tab ${authView === 'login' ? 'active' : ''}`} onClick={() => setAuthView('login')}>
+              Iniciar Sesión
+            </div>
+            <div className={`auth-tab ${authView === 'register' ? 'active' : ''}`} onClick={() => setAuthView('register')}>
+              Registrarse
+            </div>
+          </div>
+
+          <form onSubmit={handleAuth}>
+            <div className="form-group">
+              <label>Correo Electrónico</label>
+              <input type="email" placeholder="tu@correo.com" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+            </div>
+            <div className="form-group">
+              <label>Contraseña</label>
+              <input type="password" placeholder="••••••••" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+            </div>
+            <button type="submit" className="btn btn-primary btn-full" disabled={authLoading}>
+              {authLoading ? 'Procesando...' : authView === 'login' ? 'Ingresar al Dashboard' : 'Crear Cuenta'}
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-container">
 
@@ -370,6 +523,13 @@ function App() {
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowModal(true)}>
                   <Plus size={18} /> Nuevo Servicio
+                </button>
+                <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '10px' }}>
+                  <User size={18} color="var(--primary)" />
+                  <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 500 }}>{userEmail}</span>
+                </div>
+                <button className="btn glass-card" onClick={handleLogout} style={{ border: '1px solid var(--danger)', color: 'var(--danger)' }}>
+                  <LogOut size={18} /> Salir
                 </button>
               </div>
             </header>
