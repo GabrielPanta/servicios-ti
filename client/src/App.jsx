@@ -66,6 +66,7 @@ function App() {
   // Riesgos Informáticos
   const [riesgos, setRiesgos] = useState([]);
   const [showRiskForm, setShowRiskForm] = useState(false);
+  const [riesgoSeleccionado, setRiesgoSeleccionado] = useState(null);
   const [riskForm, setRiskForm] = useState({
     nombre_proyecto: '',
     solicitante: userEmail,
@@ -393,6 +394,86 @@ function App() {
     ventana.print();
   };
 
+  const exportarRiesgoPDF = () => {
+    const r = riesgoSeleccionado;
+    const fecha = new Date().toLocaleDateString('es-PE');
+    
+    const contenido = `
+      <html>
+      <head>
+        <title>Ficha de Riesgo - ${r.nombre_proyecto}</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1e293b; }
+          h1 { color: #0f172a; border-bottom: 2px solid #6366f1; padding-bottom: 10px; }
+          .severity { display: inline-block; padding: 5px 12px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; margin-bottom: 20px; }
+          .bajo { background: #d1fae5; color: #065f46; }
+          .medio { background: #fef3c7; color: #92400e; }
+          .alto { background: #fee2e2; color: #991b1b; }
+          .critico { background: #ffe4e6; color: #9f1239; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+          .info-item { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
+          .label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: bold; margin-bottom: 5px; }
+          .value { font-size: 1rem; font-weight: 600; }
+          .description { margin-top: 30px; background: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; line-height: 1.6; }
+          .footer { margin-top: 50px; font-size: 0.8rem; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h1 style="margin: 0;">🛡️ Ficha Técnica de Riesgo TI</h1>
+          <span class="severity ${r.severidad.toLowerCase()}">SEVERIDAD: ${r.severidad.toUpperCase()}</span>
+        </div>
+        
+        <div class="description">
+          <div class="label">Proyecto / Solicitud</div>
+          <div style="font-size: 1.5rem; font-weight: 800; color: #6366f1;">${r.nombre_proyecto}</div>
+        </div>
+
+        <div class="info-grid" style="margin-top: 20px;">
+          <div class="info-item">
+            <div class="label">Solicitante</div>
+            <div class="value">${r.solicitante}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Departamento</div>
+            <div class="value">${r.departamento}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Tipo de Riesgo</div>
+            <div class="value">${r.tipo_riesgo}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Impacto Financiero Est.</div>
+            <div class="value" style="color: #ef4444;">$${Number(r.impacto_financiero).toLocaleString()}</div>
+          </div>
+        </div>
+
+        <div class="description">
+          <div class="label">Descripción Detallada</div>
+          <p>${r.descripcion}</p>
+        </div>
+
+        <div class="description">
+          <div class="label">Sistemas e Infraestructura Afectada</div>
+          <ul style="margin-top: 10px;">
+            ${JSON.parse(r.sistemas_afectados || '[]').map(sys => `<li>${sys}</li>`).join('')}
+          </ul>
+        </div>
+
+        <div class="footer">
+          Generado automáticamente por RiskShield Pro — ${fecha}<br/>
+          Marco Normativo: ISO 27001 / ITIL 4
+        </div>
+      </body>
+      </html>
+    `;
+
+    const ventana = window.open('', '_blank');
+    ventana.document.write(contenido);
+    ventana.document.close();
+    ventana.print();
+  };
+
   const getStatusBadge = (estado) => {
     switch (estado) {
       case 'Validado': return <span className="badge badge-valid">Validado</span>;
@@ -437,35 +518,76 @@ function App() {
           )}
         </AnimatePresence>
 
-        <motion.div className="glass-card auth-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="auth-header">
-            <h2>Servicios TI</h2>
-            <p style={{ color: 'var(--text-muted)' }}>Gestión de calidad y despliegue</p>
-          </div>
+        {/* Lado Visual (Hero) */}
+        <div className="auth-visual-side">
+          <motion.div 
+            className="auth-visual-content"
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px' }}>
+              <Shield size={42} color="white" />
+              <h2 style={{ color: 'white', fontSize: '1.8rem', fontWeight: 700, margin: 0 }}>RiskShield Pro</h2>
+            </div>
+            <h1>Protección y Cumplimiento de Nivel Empresarial</h1>
+            <p>Monitoree riesgos en tiempo real, gestione validaciones de infraestructura y asegure la integridad de sus servicios críticos con nuestra plataforma avanzada.</p>
+          </motion.div>
+        </div>
 
-          <div className="auth-tabs">
-            <div className={`auth-tab ${authView === 'login' ? 'active' : ''}`} onClick={() => setAuthView('login')}>
-              Iniciar Sesión
+        {/* Lado del Formulario */}
+        <div className="auth-form-side">
+          <motion.div 
+            className="auth-card" 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+          >
+            <div className="auth-header">
+              <h2>{authView === 'login' ? 'Bienvenido' : 'Crear Cuenta'}</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
+                {authView === 'login' ? 'Ingrese sus credenciales para acceder.' : 'Únase a nuestra red de seguridad empresarial.'}
+              </p>
             </div>
-            <div className={`auth-tab ${authView === 'register' ? 'active' : ''}`} onClick={() => setAuthView('register')}>
-              Registrarse
-            </div>
-          </div>
 
-          <form onSubmit={handleAuth}>
-            <div className="form-group">
-              <label>Correo Electrónico</label>
-              <input type="email" placeholder="tu@correo.com" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+            <div className="auth-tabs">
+              <div className={`auth-tab ${authView === 'login' ? 'active' : ''}`} onClick={() => setAuthView('login')}>
+                Iniciar Sesión
+              </div>
+              <div className={`auth-tab ${authView === 'register' ? 'active' : ''}`} onClick={() => setAuthView('register')}>
+                Registrarse
+              </div>
             </div>
-            <div className="form-group">
-              <label>Contraseña</label>
-              <input type="password" placeholder="••••••••" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+
+            <form onSubmit={handleAuth}>
+              <div className="form-group">
+                <label>Correo Electrónico Corporativo</label>
+                <input type="email" placeholder="ejemplo@empresa.com" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label>Contraseña</label>
+                <input type="password" placeholder="••••••••" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+              </div>
+              
+              {authView === 'login' && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
+                  <a href="#" style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>¿Olvidó su contraseña?</a>
+                </div>
+              )}
+
+              <button type="submit" className="btn btn-primary btn-full" disabled={authLoading} style={{ height: '52px', fontSize: '1.1rem' }}>
+                {authLoading ? 'Procesando...' : authView === 'login' ? 'Ingresar al Dashboard' : 'Comenzar Ahora'}
+              </button>
+            </form>
+
+            <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                &copy; 2026 RiskShield Pro. Todos los derechos reservados.<br/>
+                Sistema de Gestión de Riesgos e Infraestructura TI.
+              </p>
             </div>
-            <button type="submit" className="btn btn-primary btn-full" disabled={authLoading}>
-              {authLoading ? 'Procesando...' : authView === 'login' ? 'Ingresar al Dashboard' : 'Crear Cuenta'}
-            </button>
-          </form>
-        </motion.div>
+          </motion.div>
+        </div>
       </div>
     );
   }
@@ -704,7 +826,84 @@ function App() {
                 exit={{ opacity: 0, y: -10 }}
               >
                 {/* ============ VISTAS DE RIESGOS ============ */}
-                {!showRiskForm ? (
+                {riesgoSeleccionado ? (
+                  <motion.div key="riesgo-detalle" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+                      <button className="btn btn-primary" onClick={() => setRiesgoSeleccionado(null)}>
+                        <ArrowLeft size={18} /> Volver a la Lista
+                      </button>
+                      <button className="btn btn-edit" onClick={exportarRiesgoPDF}>
+                        <Download size={18} /> Exportar Ficha Técnica
+                      </button>
+                    </div>
+
+                    <div className="grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        <div className="glass-card" style={{ padding: '30px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                            <div>
+                              <span className={`severity-badge severity-${riesgoSeleccionado.severidad.toLowerCase()}`} style={{ marginBottom: '10px', display: 'inline-block' }}>
+                                Severidad: {riesgoSeleccionado.severidad}
+                              </span>
+                              <h2 style={{ fontSize: '2.2rem', fontWeight: 800 }}>{riesgoSeleccionado.nombre_proyecto}</h2>
+                            </div>
+                            {getStatusBadge(riesgoSeleccionado.estado)}
+                          </div>
+                          <p style={{ fontSize: '1.1rem', color: 'var(--text-main)', lineHeight: '1.6' }}>{riesgoSeleccionado.descripcion}</p>
+                        </div>
+
+                        <div className="glass-card" style={{ padding: '30px' }}>
+                          <div className="section-title" style={{ marginBottom: '20px' }}>
+                            <Database size={20} color="var(--primary)" />
+                            <h3>Sistemas e Infraestructura Afectada</h3>
+                          </div>
+                          <div className="systems-grid">
+                            {JSON.parse(riesgoSeleccionado.sistemas_afectados || '[]').map(sys => (
+                              <div key={sys} className="system-checkbox active" style={{ cursor: 'default' }}>
+                                <Database size={16} />
+                                <span>{sys}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        <div className="glass-card" style={{ padding: '25px' }}>
+                          <h4 style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', marginBottom: '15px' }}>Detalles de la Solicitud</h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Solicitante</label>
+                              <span style={{ fontWeight: 600 }}>{riesgoSeleccionado.solicitante}</span>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Departamento</label>
+                              <span style={{ fontWeight: 600 }}>{riesgoSeleccionado.departamento}</span>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Tipo de Riesgo</label>
+                              <span style={{ fontWeight: 600 }}>{riesgoSeleccionado.tipo_riesgo}</span>
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Impacto Financiero Est.</label>
+                              <span style={{ fontWeight: 700, color: 'var(--danger)', fontSize: '1.2rem' }}>
+                                ${Number(riesgoSeleccionado.impacto_financiero).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="help-box" style={{ padding: '25px', flexDirection: 'column', alignItems: 'flex-start', gap: '15px' }}>
+                          <div>
+                            <h4 style={{ margin: 0 }}>Análisis de Cumplimiento</h4>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '5px' }}>Esta solicitud está siendo revisada bajo el marco normativo ISO 27001.</p>
+                          </div>
+                          <button className="btn btn-primary btn-full" style={{ fontSize: '0.9rem' }}>Contactar Auditor</button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : !showRiskForm ? (
                   <div>
                     <header className="header">
                       <div className="title-section">
@@ -725,7 +924,7 @@ function App() {
                         </div>
                       ) : (
                         riesgos.map(r => (
-                          <div key={r.id} className="glass-card risk-card">
+                          <div key={r.id} className="glass-card risk-card" onClick={() => setRiesgoSeleccionado(r)} style={{ cursor: 'pointer' }}>
                             <div className="risk-header">
                               <span className={`severity-badge severity-${r.severidad.toLowerCase()}`}>{r.severidad}</span>
                               {getStatusBadge(r.estado)}
