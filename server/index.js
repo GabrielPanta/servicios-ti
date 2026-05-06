@@ -23,6 +23,28 @@ const connectDB = async () => {
     try {
         const connection = await mysql.createPool(dbConfig);
         console.log('✅ Conectado a MySQL con éxito');
+        
+        // Crear tabla de riesgos si no existe
+        const createRisksTable = `
+            CREATE TABLE IF NOT EXISTS solicitudes_riesgo (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nombre_proyecto VARCHAR(255) NOT NULL,
+                solicitante VARCHAR(255) NOT NULL,
+                departamento VARCHAR(100) NOT NULL,
+                tipo_riesgo VARCHAR(100) NOT NULL,
+                severidad ENUM('Bajo', 'Medio', 'Alto', 'Crítico') NOT NULL,
+                descripcion TEXT,
+                sistemas_afectados TEXT,
+                impacto_financiero DECIMAL(15, 2),
+                estado ENUM('Borrador', 'Enviado', 'En Revisión', 'Aprobado', 'Rechazado') DEFAULT 'Enviado',
+                usuario_id INT,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+            )
+        `;
+        await connection.execute(createRisksTable);
+        console.log('✅ Tabla "solicitudes_riesgo" verificada');
+
         return connection;
     } catch (error) {
         console.error('❌ Error conectando a MySQL:', error.message);
@@ -331,6 +353,59 @@ app.delete('/api/servicios/:id', authMiddleware, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// --- ENDPOINTS PARA RIESGOS INFORMATICOS ---
+
+// Obtener todas las solicitudes de riesgo del usuario
+app.get('/api/riesgos', authMiddleware, async (req, res) => {
+    try {
+        const [rows] = await db.execute(
+            'SELECT * FROM solicitudes_riesgo WHERE usuario_id = ? ORDER BY fecha_creacion DESC',
+            [req.user.id]
+        );
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Crear una nueva solicitud de riesgo
+app.post('/api/riesgos', authMiddleware, async (req, res) => {
+    try {
+        const { 
+            nombre_proyecto, solicitante, departamento, tipo_riesgo, 
+            severidad, descripcion, sistemas_afectados, impacto_financiero, estado 
+        } = req.body;
+
+        const [result] = await db.execute(
+            `INSERT INTO solicitudes_riesgo 
+            (nombre_proyecto, solicitante, departamento, tipo_riesgo, severidad, descripcion, sistemas_afectados, impacto_financiero, estado, usuario_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                nombre_proyecto, solicitante, departamento, tipo_riesgo, 
+                severidad, descripcion, JSON.stringify(sistemas_afectados), impacto_financiero, estado || 'Enviado', req.user.id
+            ]
+        );
+
+        console.log(`🚀 Riesgo creado para proyecto "${nombre_proyecto}" con ID ${result.insertId}`);
+        res.status(201).json({ success: true, id: result.insertId, message: 'Solicitud de riesgo creada con éxito' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Actualizar estado de una solicitud de riesgo
+app.patch('/api/riesgos/:id/estado', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { estado } = req.body;
+        await db.execute('UPDATE solicitudes_riesgo SET estado = ? WHERE id = ?', [estado, id]);
+        res.json({ success: true, message: 'Estado del riesgo actualizado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
